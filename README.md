@@ -9,8 +9,18 @@ before doing this.
 
 ## Installation
 
-1. Clone the repository.
-2. `pip install -r requirements.txt`
+### With Pip
+
+```bash
+pip install git+https://github.com/ramadan8/Burner.git
+```
+
+### Manual
+
+```bash
+git clone https://github.com/ramadan8/Burner --depth 1
+pip install .
+```
 
 ## Usage
 

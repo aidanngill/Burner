@@ -1,8 +1,11 @@
+import os
 import sqlite3
+import sys
 import time
 from typing import List, Optional, TypedDict
 
 import click
+from pkg_resources import resource_filename
 import requests
 from bs4 import BeautifulSoup
 
@@ -203,6 +206,25 @@ class Client(requests.Session):
         return data
 
     def fetch_service_list(self) -> List[Service]:
+        if self._sql_conn:
+            cursor = self._sql_conn.cursor()
+
+            cursor.execute("SELECT * FROM SERVICES")
+            result = cursor.fetchall()
+
+            cursor.close()
+
+            if len(result) > 0:
+                return [
+                    {
+                        "id": r[0],
+                        "image": r[1],
+                        "name": r[2],
+                        "code": r[3],
+                    }
+                    for r in result
+                ]
+
         resp = self.get("https://simsms.org/new_theme_api.html")
         soup = BeautifulSoup(resp.text, "html.parser")
 
@@ -299,7 +321,11 @@ class Client(requests.Session):
 @click.pass_context
 def cli(ctx, authorization: str):
     ctx.ensure_object(dict)
-    ctx.obj["CLIENT"] = Client(authorization)
+
+    ctx.obj["CLIENT"] = Client(
+        authorization,
+        resource_filename(__name__, "sms.db"),
+    )
 
 
 @cli.command()
@@ -333,7 +359,3 @@ def prices(ctx, service: str):
         print(
             f"[{price['country']['code']}] {price['country']['name']:<16s} = ₽{price['price']}"
         )
-
-
-if __name__ == "__main__":
-    cli(obj={})
