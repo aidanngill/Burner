@@ -1,3 +1,5 @@
+import importlib
+from importlib import resources
 import os
 import sqlite3
 import sys
@@ -322,10 +324,10 @@ class Client(requests.Session):
 def cli(ctx, authorization: str):
     ctx.ensure_object(dict)
 
-    ctx.obj["CLIENT"] = Client(
-        authorization,
-        resource_filename(__name__, "sms.db"),
-    )
+    path_db = os.path.join(os.path.expanduser("~"), ".ramadan", "burner")
+    file_db = os.path.join(path_db, "sms.db")
+
+    ctx.obj["CLIENT"] = Client(authorization, file_db)
 
 
 @cli.command()
@@ -359,3 +361,7 @@ def prices(ctx, service: str):
         print(
             f"[{price['country']['code']}] {price['country']['name']:<16s} = ₽{price['price']}"
         )
+
+
+if __name__ == "__main__":
+    cli()
