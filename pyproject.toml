@@ -1,11 +1,27 @@
 [tool.poetry]
 name = "burner"
-version = "0.1.0"
 description = "Script to interact with SimSMS's website."
-license = "MIT"
+
+version = "0.1.2"
+
 authors = ["Aidan <ramadan8@riseup.net>"]
+
+readme = "README.md"
+license = "MIT"
+
 repository = "https://github.com/ramadan8/Burner"
 packages = [{include = "burner"}]
+
+keywords = ["phone", "burner", "sms"]
+
+classifiers = [
+    "Topic :: Communications :: Internet Phone",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12"
+]
 
 [tool.poetry.dependencies]
 python = "^3.8"

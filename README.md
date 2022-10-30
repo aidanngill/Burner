@@ -4,7 +4,11 @@ Easy to use script to determine the cheapest price for [SimSMS](https://simsms.o
 
 ## Installation
 
-In both cases you will need to install Poetry.
+### With Pip
+
+```bash
+pip install burner
+```
 
 ### With Poetry
 

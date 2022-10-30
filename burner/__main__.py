@@ -327,6 +327,9 @@ def cli(ctx, authorization: str):
     path_db = os.path.join(os.path.expanduser("~"), ".ramadan", "burner")
     file_db = os.path.join(path_db, "sms.db")
 
+    if not os.path.isdir(path_db):
+        os.makedirs(path_db)
+
     ctx.obj["CLIENT"] = Client(authorization, file_db)
 
 
