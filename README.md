@@ -28,13 +28,18 @@ poetry install
 Use the following command to find the code for the service you want.
 
 ```bash
-poetry run burner --authorization <api_key> services
+burner services
 ```
 
 Then use the following command to find the price list for the service.
 
 ```bash
-poetry run burner --authorization <api_key> prices opt29 # This will get the price list for Telegram.
+burner prices opt29 # This will get the price list for Telegram.
 ```
 
-You can omit the `--authorization` argument once you have populated the database once.
+If you want to refresh the cache for the prices to a newer version, run the following
+command.
+
+```bash
+burner --authorization <apikey> reset
+```

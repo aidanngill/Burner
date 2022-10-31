@@ -39,16 +39,17 @@ class Client(requests.Session):
         super().__init__()
 
         self._api_key = api_key
-        self._sql_conn: Optional[sqlite3.Connection] = None
+        self._sql_path = database_path
 
-        self._sql_conn = self._initialize_connection(database_path)
+        self._sql_connection: Optional[sqlite3.Connection] = None
 
-        self.initialize_price_cache()
+        self._initialise_connection(database_path)
+        self._initialise_price_cache()
 
-    def _initialize_connection(self, database_path: str) -> sqlite3.Connection:
-        conn = sqlite3.connect(database_path)
+    def _initialise_connection(self, database_path: str) -> sqlite3.Connection:
+        self._sql_connection = sqlite3.connect(database_path)
 
-        conn.execute(
+        self._sql_connection.execute(
             """
             CREATE TABLE IF NOT EXISTS COUNTRIES (
                 ID INT PRIMARY KEY NOT NULL,
@@ -59,7 +60,7 @@ class Client(requests.Session):
         """
         )
 
-        conn.execute(
+        self._sql_connection.execute(
             """
             CREATE TABLE IF NOT EXISTS SERVICES (
                 ID INT PRIMARY KEY NOT NULL,
@@ -70,7 +71,7 @@ class Client(requests.Session):
         """
         )
 
-        conn.execute(
+        self._sql_connection.execute(
             """
             CREATE TABLE IF NOT EXISTS PRICES (
                 ID INT PRIMARY KEY NOT NULL,
@@ -84,7 +85,7 @@ class Client(requests.Session):
         """
         )
 
-        cursor = conn.cursor()
+        cursor = self._sql_connection.cursor()
 
         cursor.execute("SELECT * FROM COUNTRIES")
         result = cursor.fetchall()
@@ -117,12 +118,11 @@ class Client(requests.Session):
                 )
 
         cursor.close()
-        conn.commit()
 
-        return conn
+        self._sql_connection.commit()
 
-    def initialize_price_cache(self) -> None:
-        cursor = self._sql_conn.cursor()
+    def _initialise_price_cache(self) -> None:
+        cursor = self._sql_connection.cursor()
         cursor.execute("SELECT * FROM COUNTRIES")
 
         for country in cursor.fetchall():
@@ -161,11 +161,20 @@ class Client(requests.Session):
             time.sleep(0.1)
 
         cursor.close()
-        self._sql_conn.commit()
+        self._sql_connection.commit()
+
+    def reset_cache(self) -> None:
+        """Re-initialise the cache."""
+        self._sql_connection.close()
+
+        os.remove(self._sql_path)
+
+        self._initialise_connection(self._sql_path)
+        self._initialise_price_cache()
 
     def fetch_country_list(self) -> List[Country]:
-        if self._sql_conn:
-            cursor = self._sql_conn.cursor()
+        if self._sql_connection:
+            cursor = self._sql_connection.cursor()
 
             cursor.execute("SELECT * FROM COUNTRIES")
             result = cursor.fetchall()
@@ -209,8 +218,8 @@ class Client(requests.Session):
         return data
 
     def fetch_service_list(self) -> List[Service]:
-        if self._sql_conn:
-            cursor = self._sql_conn.cursor()
+        if self._sql_connection:
+            cursor = self._sql_connection.cursor()
 
             cursor.execute("SELECT * FROM SERVICES")
             result = cursor.fetchall()
@@ -255,7 +264,7 @@ class Client(requests.Session):
 
     def fetch_prices_by_country(self, country_code: str) -> dict:
         if self._api_key is None:
-            raise Exception("Authorization is required.")
+            raise Exception("Authorisation is required.")
 
         resp = self.get(
             "https://simsms.org/reg-sms.api.php",
@@ -269,7 +278,7 @@ class Client(requests.Session):
         return resp.json()
 
     def find_price_by_service(self, service_code: str) -> List[ServicePrice]:
-        cursor = self._sql_conn.cursor()
+        cursor = self._sql_connection.cursor()
 
         cursor.execute("SELECT ID FROM SERVICES WHERE CODE = ?", (service_code,))
         result = cursor.fetchone()
@@ -320,7 +329,7 @@ class Client(requests.Session):
 
 
 @click.group()
-@click.option("--authorization", help="Key to authorize against SimSMS's servers with.")
+@click.option("--authorization", help="Key to authorise against SimSMS's servers with.")
 @click.pass_context
 def cli(ctx, authorization: str):
     ctx.ensure_object(dict)
@@ -369,6 +378,14 @@ def prices(ctx, service: str):
         print(
             f"[{price['country']['code']}] {price['country']['name']:<16s} = ₽{price['price']}"
         )
+
+
+@cli.command()
+@click.pass_context
+def reset(ctx):
+    """Reset the cache with the latest information. Authorisation is needed."""
+    client: Client = ctx.obj["CLIENT"]
+    client.reset_cache()
 
 
 if __name__ == "__main__":

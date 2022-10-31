@@ -2,7 +2,7 @@
 name = "burner"
 description = "Script to interact with SimSMS's website."
 
-version = "0.1.3"
+version = "0.1.4"
 
 authors = ["Aidan <ramadan8@riseup.net>"]
 
