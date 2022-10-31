@@ -1,14 +1,11 @@
-import importlib
-from importlib import resources
 import os
 import shutil
 import sqlite3
-import sys
 import time
+from importlib import resources
 from typing import List, Optional, TypedDict
 
 import click
-from pkg_resources import resource_filename
 import requests
 from bs4 import BeautifulSoup
 
@@ -41,14 +38,21 @@ class Client(requests.Session):
         self._api_key = api_key
         self._sql_path = database_path
 
-        self._sql_connection: Optional[sqlite3.Connection] = None
+        self._sql_connection: Optional[sqlite3.Connection] = sqlite3.connect(
+            database_path
+        )
 
-        self._initialise_connection(database_path)
+    def __enter__(self):
+        self._initialise_connection()
         self._initialise_price_cache()
 
-    def _initialise_connection(self, database_path: str) -> sqlite3.Connection:
-        self._sql_connection = sqlite3.connect(database_path)
+        return self
 
+    def __exit__(self, *_):
+        if self._sql_connection:
+            self._sql_connection.close()
+
+    def _initialise_connection(self) -> sqlite3.Connection:
         self._sql_connection.execute(
             """
             CREATE TABLE IF NOT EXISTS COUNTRIES (
@@ -169,7 +173,9 @@ class Client(requests.Session):
 
         os.remove(self._sql_path)
 
-        self._initialise_connection(self._sql_path)
+        self._sql_connection = sqlite3.connect(self._sql_path)
+
+        self._initialise_connection()
         self._initialise_price_cache()
 
     def fetch_country_list(self) -> List[Country]:
@@ -329,11 +335,11 @@ class Client(requests.Session):
 
 
 @click.group()
-@click.option("--authorization", help="Key to authorise against SimSMS's servers with.")
+@click.option(
+    "-a", "--authorization", help="Key to authorise against SimSMS's servers with."
+)
 @click.pass_context
-def cli(ctx, authorization: str):
-    ctx.ensure_object(dict)
-
+def cli(ctx: click.Context, authorization: str):
     path_db = os.path.join(os.path.expanduser("~"), ".ramadan", "burner")
     file_db = os.path.join(path_db, "sms.db")
 
@@ -344,47 +350,46 @@ def cli(ctx, authorization: str):
         with resources.path("burner.resources", "sms.db") as path:
             shutil.copy(path, file_db)
 
-    ctx.obj["CLIENT"] = Client(authorization, file_db)
+    ctx.obj = ctx.with_resource(Client(authorization, file_db))
 
 
 @cli.command()
-@click.pass_context
-def countries(ctx):
+@click.pass_obj
+def countries(client: Client):
     """List all of the available countries and their country codes."""
-    client: Client = ctx.obj["CLIENT"]
-
     for country in client.fetch_country_list():
         click.echo(f"[{country['code']}] {country['name']}")
 
 
 @cli.command()
-@click.pass_context
-def services(ctx):
+@click.pass_obj
+def services(client: Client):
     """List all of the available services and their codes."""
-    client: Client = ctx.obj["CLIENT"]
-
     for service in client.fetch_service_list():
         click.echo(f"[{service['code']}] {service['name']}")
 
 
 @cli.command()
 @click.argument("service")
-@click.pass_context
-def prices(ctx, service: str):
+@click.pass_obj
+def prices(client: Client, service: str):
     """Find the cheapest prices for a given service."""
-    client: Client = ctx.obj["CLIENT"]
-
     for price in client.find_price_by_service(service):
+        country = price["country"]
+
         print(
-            f"[{price['country']['code']}] {price['country']['name']:<16s} = ₽{price['price']}"
+            "[{code}] {name:<16s} = ₽{price}".format(
+                code=country["code"],
+                name=country["name"],
+                price=price["price"],
+            )
         )
 
 
 @cli.command()
-@click.pass_context
-def reset(ctx):
+@click.pass_obj
+def reset(client: Client):
     """Reset the cache with the latest information. Authorisation is needed."""
-    client: Client = ctx.obj["CLIENT"]
     client.reset_cache()
 
 
