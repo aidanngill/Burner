@@ -3,215 +3,116 @@ import shutil
 import sqlite3
 import time
 from importlib import resources
-from typing import List, Optional, TypedDict
+from typing import List, Optional
 
 import click
+import peewee
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
+from peewee import SqliteDatabase
+
+from . import database
+from .database import Country, Price, Service
+from .exceptions import EmptyAuthorisationException, ScraperException
 
 
-class Country(TypedDict):
-    id: int
-    image: str
-    name: str
-    code: str
-
-
-class Service(TypedDict):
-    id: int
-    image: str
-    name: str
-    code: str
-
-
-class ServicePrice(TypedDict):
-    id: int
-    price: float
-    country: Country
-    service: Service
-
-
-class Client(requests.Session):
+class Client:
     def __init__(self, api_key: Optional[str] = None, database_path: str = "sms.db"):
         super().__init__()
 
         self._api_key = api_key
-        self._sql_path = database_path
+        self._session = requests.Session()
 
-        self._sql_connection: Optional[sqlite3.Connection] = sqlite3.connect(
-            database_path
-        )
+        self._database_path = database_path
+        self._database = SqliteDatabase(self._database_path)
 
-    def __enter__(self):
-        self._initialise_connection()
-        self._initialise_price_cache()
+        database.proxy.initialize(self._database)
+        self._database.create_tables([Country, Price, Service])
 
-        return self
+    def _initialize_database(self) -> sqlite3.Connection:
+        countries: List[Country] = Country.select()
 
-    def __exit__(self, *_):
-        if self._sql_connection:
-            self._sql_connection.close()
-
-    def _initialise_connection(self) -> sqlite3.Connection:
-        self._sql_connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS COUNTRIES (
-                ID INT PRIMARY KEY NOT NULL,
-                IMAGE TEXT NOT NULL,
-                NAME TEXT NOT NULL,
-                CODE TEXT NOT NULL
-            );
-        """
-        )
-
-        self._sql_connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS SERVICES (
-                ID INT PRIMARY KEY NOT NULL,
-                IMAGE TEXT NOT NULL,
-                NAME TEXT NOT NULL,
-                CODE TEXT NOT NULL
-            )
-        """
-        )
-
-        self._sql_connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS PRICES (
-                ID INT PRIMARY KEY NOT NULL,
-                ENABLED INT NOT NULL,
-                PRICE REAL NOT NULL,
-                COUNTRY_ID INT NOT NULL,
-                SERVICE_ID INT NOT NULL,
-                FOREIGN KEY(COUNTRY_ID) REFERENCES COUNTRIES(ID),
-                FOREIGN KEY(SERVICE_ID) REFERENCES SERVICES(CODE)
-            )
-        """
-        )
-
-        cursor = self._sql_connection.cursor()
-
-        cursor.execute("SELECT * FROM COUNTRIES")
-        result = cursor.fetchall()
-
-        if len(result) == 0:
+        if len(countries) == 0:
             for country in self.fetch_country_list():
-                cursor.execute(
-                    f"INSERT INTO COUNTRIES (ID, IMAGE, NAME, CODE) VALUES (?, ?, ?, ?)",
-                    (
-                        country["id"],
-                        country["image"],
-                        country["name"],
-                        country["code"],
-                    ),
+                Country.create(
+                    image=country["image"],
+                    name=country["name"],
+                    code=country["code"],
                 )
 
-        cursor.execute("SELECT * FROM SERVICES")
-        result = cursor.fetchall()
+        services: List[Service] = Service.select()
 
-        if len(result) == 0:
+        if len(services) == 0:
             for service in self.fetch_service_list():
-                cursor.execute(
-                    f"INSERT INTO SERVICES (ID, IMAGE, NAME, CODE) VALUES (?, ?, ?, ?)",
-                    (
-                        service["id"],
-                        service["image"],
-                        service["name"],
-                        service["code"],
-                    ),
+                Service.create(
+                    image=service["image"],
+                    name=service["name"],
+                    code=service["code"],
                 )
 
-        cursor.close()
+        countries: List[Country] = Country.select()
 
-        self._sql_connection.commit()
+        for country in countries:
+            prices: List[Price] = Price.select().where(Price.country == country)
 
-    def _initialise_price_cache(self) -> None:
-        cursor = self._sql_connection.cursor()
-        cursor.execute("SELECT * FROM COUNTRIES")
-
-        for country in cursor.fetchall():
-            cursor.execute("SELECT * FROM PRICES WHERE COUNTRY_ID = ?", (country[0],))
-            result = cursor.fetchall()
-
-            if len(result) > 0:
+            if len(prices) > 0:
                 continue
 
-            for price in self.fetch_prices_by_country(country[3]):
-                cursor.execute(
-                    "SELECT ID FROM SERVICES WHERE CODE = ?", (price["service_opt"],)
-                )
-                result_service = cursor.fetchone()
-
-                if not result_service:
+            for price in self.fetch_prices_by_country(country.code):
+                try:
+                    service: Optional[Service] = Service.get(
+                        Service.code == price["service_opt"]
+                    )
+                except peewee.DoesNotExist:
                     continue
 
-                cursor.execute(
-                    "SELECT ID FROM COUNTRIES WHERE CODE = ?",
-                    (price["country_shortname"],),
-                )
-                result_country = cursor.fetchone()
-
-                cursor.execute(
-                    "INSERT INTO PRICES (ID, ENABLED, PRICE, COUNTRY_ID, SERVICE_ID) VALUES (?, ?, ?, ?, ?)",
-                    (
-                        price["id"],
-                        price["enable"],
-                        float(price["price"]),
-                        result_country[0],
-                        result_service[0],
-                    ),
+                Price.create(
+                    price=float(price["price"]),
+                    enabled=price["enable"],
+                    country=country,
+                    service=service,
                 )
 
             time.sleep(0.1)
 
-        cursor.close()
-        self._sql_connection.commit()
-
     def reset_cache(self) -> None:
-        """Re-initialise the cache."""
-        self._sql_connection.close()
+        """Deletes the old cache database and re-makes it."""
+        self._database.close()
 
-        os.remove(self._sql_path)
+        os.remove(self._database_path)
 
-        self._sql_connection = sqlite3.connect(self._sql_path)
+        self._database = SqliteDatabase(self._database_path)
 
-        self._initialise_connection()
-        self._initialise_price_cache()
+        database.proxy.initialize(self._database)
+        self._database.create_tables([Country, Price, Service])
 
-    def fetch_country_list(self) -> List[Country]:
-        if self._sql_connection:
-            cursor = self._sql_connection.cursor()
+        self._initialize_database()
 
-            cursor.execute("SELECT * FROM COUNTRIES")
-            result = cursor.fetchall()
+    def _fetch_table_data(self, table_id: int) -> List[dict]:
+        """Fetch data from the tables listed on the API documentation. This is done as
+        there is no officially exposed endpoint to crawl countries or services,
+        only tables in the documentation.
 
-            cursor.close()
-
-            if len(result) > 0:
-                return [
-                    {
-                        "id": r[0],
-                        "image": r[1],
-                        "name": r[2],
-                        "code": r[3],
-                    }
-                    for r in result
-                ]
-
-        resp = self.get("https://simsms.org/new_theme_api.html")
+        https://simsms.org/new_theme_api.html
+        """
+        resp = self._session.get("https://simsms.org/new_theme_api.html")
         soup = BeautifulSoup(resp.text, "html.parser")
 
-        table = soup.find_all("table")[0]
-        rows = table.find_all("tr")
+        tables: List[Tag] = soup.find_all("table")
+
+        if len(tables) == 0 or len(tables) < table_id + 1:
+            raise ScraperException("The table with the given ID could not be found.")
 
         data: List[Country] = []
+        rows: List[Tag] = tables[table_id].find_all("tr")
 
         for row in rows:
-            row_data = row.find_all("td")
+            row_data: List[Tag] = row.find_all("td")
 
             if len(row_data) < 4:
                 continue
 
+            # TODO: Maybe return something that _isn't_ a plain old `dict`.
             data.append(
                 {
                     "id": int(row_data[0].get_text().strip()),
@@ -223,56 +124,17 @@ class Client(requests.Session):
 
         return data
 
-    def fetch_service_list(self) -> List[Service]:
-        if self._sql_connection:
-            cursor = self._sql_connection.cursor()
+    def fetch_country_list(self) -> List[dict]:
+        return self._fetch_table_data(0)
 
-            cursor.execute("SELECT * FROM SERVICES")
-            result = cursor.fetchall()
-
-            cursor.close()
-
-            if len(result) > 0:
-                return [
-                    {
-                        "id": r[0],
-                        "image": r[1],
-                        "name": r[2],
-                        "code": r[3],
-                    }
-                    for r in result
-                ]
-
-        resp = self.get("https://simsms.org/new_theme_api.html")
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        table = soup.find_all("table")[1]
-        rows = table.find_all("tr")
-
-        data: List[Service] = []
-
-        for row in rows:
-            row_data = row.find_all("td")
-
-            if len(row_data) < 4:
-                continue
-
-            data.append(
-                {
-                    "id": int(row_data[0].get_text().strip()),
-                    "image": row_data[1].find("img").get("src").strip(),
-                    "name": row_data[2].get_text().strip(),
-                    "code": row_data[3].get_text().strip(),
-                }
-            )
-
-        return data
+    def fetch_service_list(self) -> List[dict]:
+        return self._fetch_table_data(1)
 
     def fetch_prices_by_country(self, country_code: str) -> dict:
         if self._api_key is None:
-            raise Exception("Authorisation is required.")
+            raise EmptyAuthorisationException
 
-        resp = self.get(
+        resp = self._session.get(
             "https://simsms.org/reg-sms.api.php",
             params={
                 "type": "get_prices_by_country",
@@ -281,57 +143,21 @@ class Client(requests.Session):
             },
         )
 
+        resp.raise_for_status()
+
         return resp.json()
 
-    def find_price_by_service(self, service_code: str) -> List[ServicePrice]:
-        cursor = self._sql_connection.cursor()
+    def find_price_by_service(self, service_code: str) -> List[Price]:
+        # TODO: Should be done automatically on __init__(?), but NOT if we are resetting
+        # the cache.
+        self._initialize_database()
 
-        cursor.execute("SELECT ID FROM SERVICES WHERE CODE = ?", (service_code,))
-        result = cursor.fetchone()
+        service: Optional[Service] = Service.get(Service.code == service_code)
 
-        if not result:
+        if not service:
             return
 
-        query = """
-            SELECT
-                COUNTRIES.ID AS COUNTRY_ID,
-                COUNTRIES.CODE AS COUNTRY_CODE,
-                COUNTRIES.IMAGE AS COUNTRY_IMAGE,
-                COUNTRIES.NAME AS COUNTRY_NAME,
-                SERVICES.ID AS SERVICE_ID,
-                SERVICES.CODE AS SERVICE_CODE,
-                SERVICES.IMAGE AS SERVICE_IMAGE,
-                SERVICES.NAME AS SERVICE_NAME,
-                PRICES.PRICE,
-                PRICES.ID 
-            FROM
-                PRICES 
-                    LEFT JOIN
-                        COUNTRIES 
-                        ON COUNTRIES.ID = PRICES.COUNTRY_ID 
-                    LEFT JOIN
-                        SERVICES 
-                        ON SERVICES.ID = PRICES.SERVICE_ID 
-            WHERE
-                SERVICE_ID = ? 
-            ORDER BY
-                PRICE
-        """
-
-        cursor.execute(query, (result[0],))
-        result = cursor.fetchall()
-
-        cursor.close()
-
-        return [
-            {
-                "country": {"id": r[0], "code": r[1], "image": r[2], "name": r[3]},
-                "service": {"id": r[4], "code": r[5], "image": r[6], "name": r[7]},
-                "price": r[8],
-                "id": r[9],
-            }
-            for r in result
-        ]
+        return Price.select().where(Price.service == service).order_by(Price.price)
 
 
 @click.group()
@@ -350,7 +176,7 @@ def cli(ctx: click.Context, authorization: str):
         with resources.path("burner.resources", "sms.db") as path:
             shutil.copy(path, file_db)
 
-    ctx.obj = ctx.with_resource(Client(authorization, file_db))
+    ctx.obj = Client(authorization, file_db)
 
 
 @cli.command()
@@ -375,13 +201,11 @@ def services(client: Client):
 def prices(client: Client, service: str):
     """Find the cheapest prices for a given service."""
     for price in client.find_price_by_service(service):
-        country = price["country"]
-
-        print(
+        click.echo(
             "[{code}] {name:<16s} = ₽{price}".format(
-                code=country["code"],
-                name=country["name"],
-                price=price["price"],
+                code=price.country.code,
+                name=price.country.name,
+                price=price.price,
             )
         )
 

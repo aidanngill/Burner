@@ -60,6 +60,14 @@ optional = false
 python-versions = ">=3.5"
 
 [[package]]
+name = "peewee"
+version = "3.15.3"
+description = "a little orm"
+category = "main"
+optional = false
+python-versions = "*"
+
+[[package]]
 name = "requests"
 version = "2.28.1"
 description = "Python HTTP for Humans."
@@ -101,7 +109,7 @@ socks = ["PySocks (>=1.5.6,!=1.5.7,<2.0)"]
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.8"
-content-hash = "3d79a5fa34f129290370dfe8cddaa73d07443aa150c2a3d964deca20772f87b6"
+content-hash = "3ac8334f6bc7ef35abe934391938bd32d578d3a980c60cc7c99b41c527762b89"
 
 [metadata.files]
 beautifulsoup4 = [
@@ -127,6 +135,9 @@ colorama = [
 idna = [
     {file = "idna-3.4-py3-none-any.whl", hash = "sha256:90b77e79eaa3eba6de819a0c442c0b4ceefc341a7a2ab77d7562bf49f425c5c2"},
     {file = "idna-3.4.tar.gz", hash = "sha256:814f528e8dead7d329833b91c5faa87d60bf71824cd12a7530b5526063d02cb4"},
+]
+peewee = [
+    {file = "peewee-3.15.3.tar.gz", hash = "sha256:cc934286d0c0842203abe66a3c6583d1463371e633b03d6da054d0f74e70706f"},
 ]
 requests = [
     {file = "requests-2.28.1-py3-none-any.whl", hash = "sha256:8fefa2a1a1365bf5520aac41836fbee479da67864514bdb821f31ce07ce65349"},
