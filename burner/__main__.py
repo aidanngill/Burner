@@ -1,6 +1,7 @@
 import importlib
 from importlib import resources
 import os
+import shutil
 import sqlite3
 import sys
 import time
@@ -42,7 +43,7 @@ class Client(requests.Session):
 
         self._sql_conn = self._initialize_connection(database_path)
 
-        self._initialize_cache()
+        self.initialize_price_cache()
 
     def _initialize_connection(self, database_path: str) -> sqlite3.Connection:
         conn = sqlite3.connect(database_path)
@@ -120,7 +121,7 @@ class Client(requests.Session):
 
         return conn
 
-    def _initialize_cache(self) -> None:
+    def initialize_price_cache(self) -> None:
         cursor = self._sql_conn.cursor()
         cursor.execute("SELECT * FROM COUNTRIES")
 
@@ -329,6 +330,10 @@ def cli(ctx, authorization: str):
 
     if not os.path.isdir(path_db):
         os.makedirs(path_db)
+
+    if not os.path.isfile(file_db):
+        with resources.path("burner.resources", "sms.db") as path:
+            shutil.copy(path, file_db)
 
     ctx.obj["CLIENT"] = Client(authorization, file_db)
 
