@@ -1,6 +1,8 @@
 # Burner
 
-Easy to use script to determine the cheapest price for [SimSMS](https://simsms.org/).
+![PyPI](https://img.shields.io/pypi/v/burner) ![PyPI - License](https://img.shields.io/pypi/l/burner) ![PyPI - Python Version](https://img.shields.io/pypi/pyversions/burner)
+
+Easy to use script to determine the cheapest price for [SimSMS](https://simsms.org/) codes.
 
 ## Installation
 
@@ -43,3 +45,5 @@ command.
 ```bash
 burner --authorization <apikey> reset
 ```
+
+For more information simply type `burner --help`.
