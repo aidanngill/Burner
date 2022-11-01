@@ -57,4 +57,6 @@ For example, you could type the following to get a Russian [Signal](https://sign
 burner -a <apikey> number RU opt127
 ```
 
+You can also set your API key with the `SMS_AUTHORIZATION` environment variable.
+
 For more information simply type `burner --help`.

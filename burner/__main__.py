@@ -217,9 +217,6 @@ class Client:
         self, country_code: str, service_code: str, number_id: int
     ) -> Optional[str]:
         """Try to get the SMS code for a specific number."""
-        if not self._api_key:
-            raise EmptyAuthorisationException
-
         data = self._api_request(
             "get_sms",
             {
@@ -240,10 +237,14 @@ class Client:
 
 @click.group()
 @click.option(
-    "-a", "--authorization", help="Key to authorise against SimSMS's servers with."
+    "-a",
+    "--authorization",
+    help="Key to authorise against SimSMS's servers with.",
 )
 @click.pass_context
 def cli(ctx: click.Context, authorization: str):
+    print(authorization)
+
     path_db = os.path.join(os.path.expanduser("~"), ".ramadan", "burner")
     file_db = os.path.join(path_db, "sms.db")
 
@@ -317,5 +318,9 @@ def reset(client: Client):
     client.reset_cache()
 
 
+def main():
+    cli(auto_envvar_prefix="SMS")
+
+
 if __name__ == "__main__":
-    cli()
+    main()
