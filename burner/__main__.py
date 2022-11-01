@@ -24,6 +24,14 @@ from .exceptions import (
 )
 
 
+def requires_cache(f):
+    def wrapper(self, *args, **kwargs):
+        self._initialize_database()
+        return f(self, *args, **kwargs)
+
+    return wrapper
+
+
 class Client:
     def __init__(self, api_key: Optional[str] = None, database_path: str = "sms.db"):
         super().__init__()
@@ -148,11 +156,8 @@ class Client:
 
         return resp.json()
 
+    @requires_cache
     def find_prices_by_service(self, service_code: str) -> List[Price]:
-        # TODO: Should be done automatically on __init__(?), but NOT if we are resetting
-        # the cache.
-        self._initialize_database()
-
         service: Optional[Service] = Service.get(Service.code == service_code)
 
         if not service:
@@ -166,7 +171,7 @@ class Client:
 
         params.update(
             {
-                "metod": method,
+                "metod": method,  # This spelling mistake is on purpose.
                 "apikey": self._api_key,
             }
         )
