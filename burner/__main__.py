@@ -243,8 +243,6 @@ class Client:
 )
 @click.pass_context
 def cli(ctx: click.Context, authorization: str):
-    print(authorization)
-
     path_db = os.path.join(os.path.expanduser("~"), ".ramadan", "burner")
     file_db = os.path.join(path_db, "sms.db")
 
