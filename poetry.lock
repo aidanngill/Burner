@@ -68,6 +68,14 @@ optional = false
 python-versions = "*"
 
 [[package]]
+name = "phonenumbers"
+version = "8.12.57"
+description = "Python version of Google's common library for parsing, formatting, storing and validating international phone numbers."
+category = "main"
+optional = false
+python-versions = "*"
+
+[[package]]
 name = "requests"
 version = "2.28.1"
 description = "Python HTTP for Humans."
@@ -109,7 +117,7 @@ socks = ["PySocks (>=1.5.6,!=1.5.7,<2.0)"]
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.8"
-content-hash = "7851d9261fd3a06a6aec7790bef4efb4e0546e87cec3c250c03f4dc5d691f2f4"
+content-hash = "4381175e797a9d24b21e6e5dac06618e8a5c1ff28d4e4b97e1040c525a9670f5"
 
 [metadata.files]
 beautifulsoup4 = [
@@ -138,6 +146,10 @@ idna = [
 ]
 peewee = [
     {file = "peewee-3.15.3.tar.gz", hash = "sha256:cc934286d0c0842203abe66a3c6583d1463371e633b03d6da054d0f74e70706f"},
+]
+phonenumbers = [
+    {file = "phonenumbers-8.12.57-py2.py3-none-any.whl", hash = "sha256:0b234c4a9519fac18d00b3c542f5b429513ea69372d4f95fbd0f716f5e2a89b5"},
+    {file = "phonenumbers-8.12.57.tar.gz", hash = "sha256:057d1966962fb86b3dc447bfac2c8e25ceed774509e49b180926a13a99910318"},
 ]
 requests = [
     {file = "requests-2.28.1-py3-none-any.whl", hash = "sha256:8fefa2a1a1365bf5520aac41836fbee479da67864514bdb821f31ce07ce65349"},

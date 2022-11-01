@@ -3,17 +3,25 @@ import shutil
 import sqlite3
 import time
 from importlib import resources
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import click
 import peewee
+import phonenumbers
 import requests
 from bs4 import BeautifulSoup, Tag
 from peewee import SqliteDatabase
 
 from . import database
 from .database import Country, Price, Service
-from .exceptions import EmptyAuthorisationException, ScraperException
+from .exceptions import (
+    APIException,
+    EmptyAuthorisationException,
+    InvalidAuthorisationException,
+    NoFundsException,
+    NumbersBusyException,
+    ScraperException,
+)
 
 
 class Client:
@@ -30,6 +38,8 @@ class Client:
         self._database.create_tables([Country, Price, Service])
 
     def _initialize_database(self) -> sqlite3.Connection:
+        """Makes sure that the necessary data is present. This includes the service
+        and country data, alongside the available prices for each country."""
         countries: List[Country] = Country.select()
 
         if len(countries) == 0:
@@ -60,9 +70,7 @@ class Client:
 
             for price in self.fetch_prices_by_country(country.code):
                 try:
-                    service: Optional[Service] = Service.get(
-                        Service.code == price["service_opt"]
-                    )
+                    service = Service.get(Service.code == price["service_opt"])
                 except peewee.DoesNotExist:
                     continue
 
@@ -74,19 +82,6 @@ class Client:
                 )
 
             time.sleep(0.1)
-
-    def reset_cache(self) -> None:
-        """Deletes the old cache database and re-makes it."""
-        self._database.close()
-
-        os.remove(self._database_path)
-
-        self._database = SqliteDatabase(self._database_path)
-
-        database.proxy.initialize(self._database)
-        self._database.create_tables([Country, Price, Service])
-
-        self._initialize_database()
 
     def _fetch_table_data(self, table_id: int) -> List[dict]:
         """Fetch data from the tables listed on the API documentation. This is done as
@@ -103,7 +98,7 @@ class Client:
         if len(tables) == 0 or len(tables) < table_id + 1:
             raise ScraperException("The table with the given ID could not be found.")
 
-        data: List[Country] = []
+        data: List[dict] = []
         rows: List[Tag] = tables[table_id].find_all("tr")
 
         for row in rows:
@@ -124,6 +119,19 @@ class Client:
 
         return data
 
+    def reset_cache(self) -> None:
+        """Deletes the old cache database and re-makes it."""
+        self._database.close()
+
+        os.remove(self._database_path)
+
+        self._database = SqliteDatabase(self._database_path)
+
+        database.proxy.initialize(self._database)
+        self._database.create_tables([Country, Price, Service])
+
+        self._initialize_database()
+
     def fetch_country_list(self) -> List[dict]:
         return self._fetch_table_data(0)
 
@@ -131,23 +139,16 @@ class Client:
         return self._fetch_table_data(1)
 
     def fetch_prices_by_country(self, country_code: str) -> dict:
-        if self._api_key is None:
-            raise EmptyAuthorisationException
+        """Fetches all of the available prices for a specific country. This does not
+        require an API key to see."""
+        params = {"type": "get_prices_by_country", "country_id": country_code}
 
-        resp = self._session.get(
-            "https://simsms.org/reg-sms.api.php",
-            params={
-                "type": "get_prices_by_country",
-                "country_id": country_code,
-                "apikey": self._api_key,
-            },
-        )
-
+        resp = self._session.get("https://simsms.org/reg-sms.api.php", params=params)
         resp.raise_for_status()
 
         return resp.json()
 
-    def find_price_by_service(self, service_code: str) -> List[Price]:
+    def find_prices_by_service(self, service_code: str) -> List[Price]:
         # TODO: Should be done automatically on __init__(?), but NOT if we are resetting
         # the cache.
         self._initialize_database()
@@ -158,6 +159,83 @@ class Client:
             return
 
         return Price.select().where(Price.service == service).order_by(Price.price)
+
+    def _api_request(self, method: str, params: Optional[dict] = None) -> dict:
+        if not self._api_key:
+            raise EmptyAuthorisationException
+
+        params.update(
+            {
+                "metod": method,
+                "apikey": self._api_key,
+            }
+        )
+
+        resp = self._session.get("https://simsms.org/priemnik.php", params=params)
+        resp.raise_for_status()
+
+        # "Коды возвращаемых ошибок" subsection: https://simsms.org/new_theme_api.html
+        if resp.text in ("API KEY не найден!", "API KEY не получен!"):
+            raise InvalidAuthorisationException
+
+        elif resp.text == "Недостаточно средств!":
+            raise NoFundsException
+
+        elif resp.text in (
+            "Превышено количество попыток!",
+            "Произошла неизвестная ошибка.",
+            "Произошла внутренняя ошибка сервера.",
+            "Неверный запрос.",
+        ):
+            raise APIException
+
+        data = resp.json()
+
+        # Mostly rate limits or bans.
+        if data["response"] in ("5", "6", "7"):
+            raise APIException
+
+        return data
+
+    def get_number(self, country_code: str, service_code: str) -> Tuple[int, str]:
+        """Get a phone number and its ID for later checking."""
+        data = self._api_request(
+            "get_number",
+            {
+                "country": country_code,
+                "service": service_code,
+            },
+        )
+
+        # "The numbers are busy, try to get the number again in 30 seconds."
+        if data["number"] == "":
+            raise NumbersBusyException
+
+        return data["id"], data["number"]
+
+    def get_sms(
+        self, country_code: str, service_code: str, number_id: int
+    ) -> Optional[str]:
+        """Try to get the SMS code for a specific number."""
+        if not self._api_key:
+            raise EmptyAuthorisationException
+
+        data = self._api_request(
+            "get_sms",
+            {
+                "id": number_id,
+                "country": country_code,
+                "service": service_code,
+            },
+        )
+
+        # Code wasn't received yet.
+        if data["response"] == "2":
+            return None
+
+        # Code was received.
+        elif data["response"] in ("1", "4"):
+            return data["sms"]
 
 
 @click.group()
@@ -200,7 +278,7 @@ def services(client: Client):
 @click.pass_obj
 def prices(client: Client, service: str):
     """Find the cheapest prices for a given service."""
-    for price in client.find_price_by_service(service):
+    for price in client.find_prices_by_service(service):
         click.echo(
             "[{code}] {name:<16s} = ₽{price}".format(
                 code=price.country.code,
@@ -208,6 +286,28 @@ def prices(client: Client, service: str):
                 price=price.price,
             )
         )
+
+
+@cli.command()
+@click.argument("country")
+@click.argument("service")
+@click.pass_obj
+def number(client: Client, country: str, service: str):
+    """Buy a number for a service in a given country, and await an SMS code from it."""
+    _id, number = client.get_number(country, service)
+
+    number_data = phonenumbers.parse(number, country)
+    click.echo(f"+{number_data.country_code} {number}")
+
+    while True:
+        code = client.get_sms(country, service, _id)
+
+        if code is not None:
+            click.echo(f"Code received: {code}")
+            break
+
+        click.echo("Waiting for a code...")
+        time.sleep(30)
 
 
 @cli.command()

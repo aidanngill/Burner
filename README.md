@@ -39,11 +39,22 @@ Then use the following command to find the price list for the service.
 burner prices opt29 # This will get the price list for Telegram.
 ```
 
-If you want to refresh the cache for the prices to a newer version, run the following
-command.
+If you want to refresh the cache for the prices to a newer version, run the following command.
 
 ```bash
 burner --authorization <apikey> reset
+```
+
+If you'd like to buy a phone number, use the following format. An API key with available funds is necessary for this command.
+
+```bash
+burner -a <apikey> number <countrycode> <servicecode>
+```
+
+For example, you could type the following to get a Russian [Signal](https://signal.org/) code.
+
+```bash
+burner -a <apikey> number RU opt127
 ```
 
 For more information simply type `burner --help`.
