@@ -66,13 +66,25 @@ class Session:
         return data
 
     def _fetch_table_data(self, table_id: int) -> List[dict]:
-        """Fetch data from the tables listed on the API documentation. This is done as
+        """
+        Fetch data from the tables listed on the API documentation. This is done as
         there is no officially exposed endpoint to crawl countries or services, only
         tables in the documentation.
 
         https://simsms.org/new_theme_api.html
+
+        Args:
+            table_id (int): The index of the table to scrape information from.
+
+        Returns:
+            List of `dict`s containing the row's image, name, and code.
+
+        Raises:
+            ScraperException: Failed to scrape the requested information.
         """
         resp = self._session.get("https://simsms.org/new_theme_api.html")
+        resp.raise_for_status()
+
         soup = BeautifulSoup(resp.text, "html.parser")
 
         tables: List[Tag] = soup.find_all("table")
@@ -102,14 +114,25 @@ class Session:
         return data
 
     def fetch_country_list(self) -> List[dict]:
+        """Scrape information from the API's 'country' table."""
         return self._fetch_table_data(0)
 
     def fetch_service_list(self) -> List[dict]:
+        """Scrape information from the API's 'service' table."""
         return self._fetch_table_data(1)
 
     def fetch_prices_by_country(self, country_code: str) -> List[CountryPriceResponse]:
-        """Fetches all of the available prices for a specific country. This does not
-        require an API key to see."""
+        """
+        Fetches all of the available prices for a specific country. This does not
+        require an API key to see.
+
+        Args:
+            country_code (str): Alpha-2 country code.
+
+        Returns:
+            List of prices directly from the API, including country, service, and price
+            information.
+        """
         params = {"type": "get_prices_by_country", "country_id": country_code}
 
         resp = self._session.get("https://simsms.org/reg-sms.api.php", params=params)

@@ -16,6 +16,12 @@ class InvalidServiceException(BurnerException):
     pass
 
 
+class InvalidCountryException(BurnerException):
+    """The given country code was invalid."""
+
+    pass
+
+
 class APIException(BurnerException):
     """Base exception class for API requests."""
 
