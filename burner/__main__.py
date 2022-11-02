@@ -8,36 +8,24 @@ from typing import List, Optional, Tuple
 import click
 import peewee
 import phonenumbers
-import requests
-from bs4 import BeautifulSoup, Tag
 from peewee import SqliteDatabase
+
+from .session import Session
 
 from . import database
 from .database import Country, Price, Service
 from .exceptions import (
     APIException,
-    EmptyAuthorisationException,
-    InvalidAuthorisationException,
-    NoFundsException,
+    InvalidServiceException,
     NumbersBusyException,
-    ScraperException,
 )
-
-
-def requires_cache(f):
-    def wrapper(self, *args, **kwargs):
-        self._initialize_database()
-        return f(self, *args, **kwargs)
-
-    return wrapper
 
 
 class Client:
     def __init__(self, api_key: Optional[str] = None, database_path: str = "sms.db"):
         super().__init__()
 
-        self._api_key = api_key
-        self._session = requests.Session()
+        self._api = Session(api_key)
 
         self._database_path = database_path
         self._database = SqliteDatabase(self._database_path)
@@ -51,81 +39,37 @@ class Client:
         countries: List[Country] = Country.select()
 
         if len(countries) == 0:
-            for country in self.fetch_country_list():
-                Country.create(
-                    image=country["image"],
-                    name=country["name"],
-                    code=country["code"],
-                )
+            Country.insert_many(self._api.fetch_country_list()).execute()
 
         services: List[Service] = Service.select()
 
         if len(services) == 0:
-            for service in self.fetch_service_list():
-                Service.create(
-                    image=service["image"],
-                    name=service["name"],
-                    code=service["code"],
-                )
+            Service.insert_many(self._api.fetch_service_list()).execute()
 
         countries: List[Country] = Country.select()
 
         for country in countries:
-            prices: List[Price] = Price.select().where(Price.country == country)
-
-            if len(prices) > 0:
+            if Price.select().where(Price.country == country).count() > 0:
                 continue
 
-            for price in self.fetch_prices_by_country(country.code):
+            data: List[dict] = []
+
+            for price in self._api.fetch_prices_by_country(country.code):
                 try:
                     service = Service.get(Service.code == price["service_opt"])
                 except peewee.DoesNotExist:
                     continue
-
-                Price.create(
-                    price=float(price["price"]),
-                    enabled=price["enable"],
-                    country=country,
-                    service=service,
-                )
+                
+                data.append({
+                    "price": float(price["price"]),
+                    "enabled": price["enable"],
+                    "country": country,
+                    "service": service,
+                })
+            
+            Price.insert_many(data).execute()
 
             time.sleep(0.1)
-
-    def _fetch_table_data(self, table_id: int) -> List[dict]:
-        """Fetch data from the tables listed on the API documentation. This is done as
-        there is no officially exposed endpoint to crawl countries or services,
-        only tables in the documentation.
-
-        https://simsms.org/new_theme_api.html
-        """
-        resp = self._session.get("https://simsms.org/new_theme_api.html")
-        soup = BeautifulSoup(resp.text, "html.parser")
-
-        tables: List[Tag] = soup.find_all("table")
-
-        if len(tables) == 0 or len(tables) < table_id + 1:
-            raise ScraperException("The table with the given ID could not be found.")
-
-        data: List[dict] = []
-        rows: List[Tag] = tables[table_id].find_all("tr")
-
-        for row in rows:
-            row_data: List[Tag] = row.find_all("td")
-
-            if len(row_data) < 4:
-                continue
-
-            # TODO: Maybe return something that _isn't_ a plain old `dict`.
-            data.append(
-                {
-                    "id": int(row_data[0].get_text().strip()),
-                    "image": row_data[1].find("img").get("src").strip(),
-                    "name": row_data[2].get_text().strip(),
-                    "code": row_data[3].get_text().strip(),
-                }
-            )
-
-        return data
 
     def reset_cache(self) -> None:
         """Deletes the old cache database and re-makes it."""
@@ -140,71 +84,38 @@ class Client:
 
         self._initialize_database()
 
-    def fetch_country_list(self) -> List[dict]:
-        return self._fetch_table_data(0)
-
-    def fetch_service_list(self) -> List[dict]:
-        return self._fetch_table_data(1)
-
-    def fetch_prices_by_country(self, country_code: str) -> dict:
-        """Fetches all of the available prices for a specific country. This does not
-        require an API key to see."""
-        params = {"type": "get_prices_by_country", "country_id": country_code}
-
-        resp = self._session.get("https://simsms.org/reg-sms.api.php", params=params)
-        resp.raise_for_status()
-
-        return resp.json()
-
-    @requires_cache
-    def find_prices_by_service(self, service_code: str) -> List[Price]:
+    def find_prices_by_service(
+        self, service_code: str, order_by: any = Price.price
+    ) -> List[Price]:
+        """Get the prices for a service across all countries."""
         service: Optional[Service] = Service.get(Service.code == service_code)
 
         if not service:
-            return
+            raise InvalidServiceException
 
-        return Price.select().where(Price.service == service).order_by(Price.price)
+        return Price.select().where(Price.service == service).order_by(order_by)
 
-    def _api_request(self, method: str, params: Optional[dict] = None) -> dict:
-        if not self._api_key:
-            raise EmptyAuthorisationException
+    def get_countries(self) -> List[Country]:
+        """Get every available country."""
+        countries: List[Country] = Country.select()
 
-        params.update(
-            {
-                "metod": method,  # This spelling mistake is on purpose.
-                "apikey": self._api_key,
-            }
-        )
+        if len(countries) == 0:
+            Country.insert_many(self._api.fetch_country_list()).execute()
 
-        resp = self._session.get("https://simsms.org/priemnik.php", params=params)
-        resp.raise_for_status()
+        return Country.select().order_by(Country.code)
 
-        # "Коды возвращаемых ошибок" subsection: https://simsms.org/new_theme_api.html
-        if resp.text in ("API KEY не найден!", "API KEY не получен!"):
-            raise InvalidAuthorisationException
+    def get_services(self) -> List[Service]:
+        """Get every available service."""
+        services: List[Service] = Service.select()
 
-        elif resp.text == "Недостаточно средств!":
-            raise NoFundsException
+        if len(services) == 0:
+            Service.insert_many(self._api.fetch_service_list()).execute()
 
-        elif resp.text in (
-            "Превышено количество попыток!",
-            "Произошла неизвестная ошибка.",
-            "Произошла внутренняя ошибка сервера.",
-            "Неверный запрос.",
-        ):
-            raise APIException
-
-        data = resp.json()
-
-        # Mostly rate limits or bans.
-        if data["response"] in ("5", "6", "7"):
-            raise APIException
-
-        return data
+        return Service.select().order_by(Service.name)
 
     def get_number(self, country_code: str, service_code: str) -> Tuple[int, str]:
         """Get a phone number and its ID for later checking."""
-        data = self._api_request(
+        data = self._api.request(
             "get_number",
             {
                 "country": country_code,
@@ -222,7 +133,7 @@ class Client:
         self, country_code: str, service_code: str, number_id: int
     ) -> Optional[str]:
         """Try to get the SMS code for a specific number."""
-        data = self._api_request(
+        data = self._api.request(
             "get_sms",
             {
                 "id": number_id,
@@ -238,6 +149,10 @@ class Client:
         # Code was received.
         elif data["response"] in ("1", "4"):
             return data["sms"]
+
+        # Unknown error occured.
+        else:
+            raise APIException
 
 
 @click.group()
@@ -265,16 +180,16 @@ def cli(ctx: click.Context, authorization: str):
 @click.pass_obj
 def countries(client: Client):
     """List all of the available countries and their country codes."""
-    for country in client.fetch_country_list():
-        click.echo(f"[{country['code']}] {country['name']}")
+    for country in client.get_countries():
+        click.echo(f"{country.code} = {country.name}")
 
 
 @cli.command()
 @click.pass_obj
 def services(client: Client):
     """List all of the available services and their codes."""
-    for service in client.fetch_service_list():
-        click.echo(f"[{service['code']}] {service['name']}")
+    for service in client.get_services():
+        click.echo(f"{service.code:<8s} = {service.name}")
 
 
 @cli.command()
@@ -311,6 +226,7 @@ def number(client: Client, country: str, service: str):
             break
 
         click.echo("Waiting for a code...")
+
         time.sleep(30)
 
 

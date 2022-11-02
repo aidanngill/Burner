@@ -10,6 +10,12 @@ class ScraperException(BurnerException):
     pass
 
 
+class InvalidServiceException(BurnerException):
+    """The given service code was invalid."""
+
+    pass
+
+
 class APIException(BurnerException):
     """Base exception class for API requests."""
 
