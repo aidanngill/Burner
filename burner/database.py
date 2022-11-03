@@ -6,6 +6,7 @@ from peewee import (
     FloatField,
     BooleanField,
     Proxy,
+    SqliteDatabase
 )
 
 proxy = Proxy()
@@ -25,7 +26,7 @@ class Country(BaseModel):
 class Service(BaseModel):
     image = TextField()
     name = CharField(unique=True)
-    code = CharField(2, unique=True)
+    code = CharField(5, unique=True)
 
 
 class Price(BaseModel):
@@ -33,3 +34,20 @@ class Price(BaseModel):
     enabled = BooleanField()
     country = ForeignKeyField(Country)
     service = ForeignKeyField(Service)
+
+
+def create(database_path: str) -> SqliteDatabase:
+    """
+    Create a connection to the database and initialise it with the necessary tables.
+    
+    Args:
+        database_path (str): Where to save the database to.
+    
+    Returns:
+        The new database connection.
+    """
+    conn = SqliteDatabase(database_path)
+    proxy.initialize(conn)
+    conn.create_tables([Country, Price, Service])
+
+    return conn

@@ -28,7 +28,22 @@ class Session:
         self._session = requests.Session()
 
     def request(self, method: str, params: Optional[dict] = None) -> dict:
-        """Make a request to SimSMS's API."""
+        """
+        Make a request to SimSMS's API.
+        
+        Args:
+            method (str): The method string for the API.
+            params (dict?): Any additional data to pass to the request.
+        
+        Returns:
+            The JSON response from the API.
+        
+        Raises:
+            EmptyAuthorisationException: No API key was provided.
+            InvalidAuthorisationException: The API key provided is invalid.
+            NoFundsException: The API key provided has no money in its balance.
+            APIException: An error occured during the API request.
+        """
         if not self._api_key:
             raise EmptyAuthorisationException
 

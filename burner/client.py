@@ -110,15 +110,11 @@ class Client:
     def __init__(
         self, api_key: Optional[str] = None, database_path: Optional[str] = None
     ):
-        super().__init__()
-
-        self._api = Session(api_key)
-
+        self._api_key = api_key
         self._database_path: str = database_path if database_path else "sms.db"
-        self._database = SqliteDatabase(self._database_path)
 
-        database.proxy.initialize(self._database)
-        self._database.create_tables([Country, Price, Service])
+        self._api = Session(self._api_key)
+        self._database: SqliteDatabase = database.create(self._database_path)
 
     def reset_cache(self) -> None:
         """Deletes the old cache database and re-makes it."""
@@ -126,10 +122,7 @@ class Client:
 
         os.remove(self._database_path)
 
-        self._database = SqliteDatabase(self._database_path)
-
-        database.proxy.initialize(self._database)
-        self._database.create_tables([Country, Price, Service])
+        self._database: SqliteDatabase = database.create(self._database_path)
 
         for func in _cache_providers.values():
             func(self)
@@ -179,11 +172,6 @@ class Client:
         Returns:
             A list of services from the database.
         """
-        services: List[Service] = Service.select()
-
-        if len(services) == 0:
-            Service.insert_many(self._api.fetch_service_list()).execute()
-
         return Service.select().order_by(Service.name)
 
     def get_number(self, country_code: str, service_code: str) -> Tuple[int, str]:
