@@ -30,14 +30,14 @@ class Session:
     def request(self, method: str, params: Optional[dict] = None) -> dict:
         """
         Make a request to SimSMS's API.
-        
+
         Args:
             method (str): The method string for the API.
             params (dict?): Any additional data to pass to the request.
-        
+
         Returns:
             The JSON response from the API.
-        
+
         Raises:
             EmptyAuthorisationException: No API key was provided.
             InvalidAuthorisationException: The API key provided is invalid.

@@ -116,11 +116,18 @@ class Client:
         self._api = Session(self._api_key)
         self._database: SqliteDatabase = database.create(self._database_path)
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self._database.close()
+
     def reset_cache(self) -> None:
         """Deletes the old cache database and re-makes it."""
         self._database.close()
 
-        os.remove(self._database_path)
+        if os.path.isfile(self._database_path) and self._database_path != ":memory:":
+            os.remove(self._database_path)
 
         self._database: SqliteDatabase = database.create(self._database_path)
 

@@ -27,7 +27,7 @@ def cli(ctx: click.Context, authorization: str):
         with resources.path("burner.resources", "sms.db") as path:
             shutil.copy(path, file_db)
 
-    ctx.obj = Client(authorization, file_db)
+    ctx.obj = ctx.with_resource(Client(authorization, file_db))
 
 
 @cli.command()

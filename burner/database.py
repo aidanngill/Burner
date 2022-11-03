@@ -6,7 +6,7 @@ from peewee import (
     FloatField,
     BooleanField,
     Proxy,
-    SqliteDatabase
+    SqliteDatabase,
 )
 
 proxy = Proxy()
@@ -39,10 +39,10 @@ class Price(BaseModel):
 def create(database_path: str) -> SqliteDatabase:
     """
     Create a connection to the database and initialise it with the necessary tables.
-    
+
     Args:
         database_path (str): Where to save the database to.
-    
+
     Returns:
         The new database connection.
     """
